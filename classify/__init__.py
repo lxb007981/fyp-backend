@@ -9,8 +9,16 @@ logging.basicConfig(filename='example.log', encoding='utf-8', level=logging.DEBU
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
     video_url = req.params.get('video')
-    model = req.params.get('model')
-    logging.info('Video URL received: ' + video_url)    
+    if not video_url:
+        try:
+            req_body = req.get_json()
+        except ValueError:
+            pass
+        else:
+            video_url = req_body.get('video')
+
+    # model = req.params.get('model')
+    logging.info('Video URL received: ' + str(video_url))    
     #results = predict_image_from_url(video_url)
     results = runner(video_url)
     headers = {
