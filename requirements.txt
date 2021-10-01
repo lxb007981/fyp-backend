@@ -21,3 +21,4 @@ urllib3==1.26.6
 pyyaml
 wheel==0.35
 tqdm
+shapely

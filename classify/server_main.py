@@ -6,6 +6,8 @@ import urllib.request
 import shutil
 import logging
 import tempfile
+from shapely.geometry import Polygon
+from shapely.geometry import Point
 
 import torch
 
@@ -26,14 +28,15 @@ ctypes.CDLL(exlibpath + 'libgthread-2.0.so.0')
 import cv2
 
 imgsz =640
-def runner(video_url):
+def runner(video_url, queue_polygon):
     tempFilePath = tempfile.gettempdir()
     file_name = os.path.join(tempFilePath, "target_video.mp4")
     # Download the file from `url` and save it locally under `file_name`:
     with urllib.request.urlopen(video_url) as response, open(file_name, 'wb') as out_file:
         shutil.copyfileobj(response, out_file)
     logging.info(os.getcwd())
-    return run(weights='classify/yolov5s_custom.pt', source=file_name, output_dir=tempFilePath)
+    
+    return run(weights='classify/yolov5s_custom.pt', source=file_name, output_dir=tempFilePath, queue_polygon=queue_polygon)
 def run(
     weights='yolov5s.pt',  # model.pt path(s)
     source='frames',  # file/dir/URL/glob, 0 for webcam
@@ -41,14 +44,17 @@ def run(
     device='cpu',  # cuda device, i.e. 0 or 0,1,2,3 or cpu
     conf_thres=0.5,  # confidence threshold
     iou_thres=0.45,  # NMS IOU threshold
-    line=[0, 300, 1000, 200], # boundary crossing line
+    queue_polygon=[181,568,936,350,1071,655,252,928],   # x y x y x y x y x y
+    displacement_thres=10,
     debug_frames=0, # debug mode
     half=False,  # use FP16 half-precision inference
     save_img=False,
     save_video=False,
 ):
-    line = ((line[0], line[1]),(line[2], line[3]))
-
+    vertices = []
+    for x, y in zip(*[iter(queue_polygon)]*2):   # loop 2 coords at a time
+        vertices.append((x,y))
+    queue_polygon = Polygon(vertices)
     device = utils.select_device(device)
     use_gpu = device == torch.device('cuda:0')
     print(device)
@@ -69,10 +75,9 @@ def run(
     tracker = Tracker(metric)
     dataset = LoadImages(source, img_size=640, stride=stride)
 
-    out_counter = 0 # below -> above
-    in_counter = 0 # above -> below
     memory = {}
     ppl_count = -1
+    avg_queue_length = 0
     dir_path = Path(output_dir)
     file_path = Path('output.txt')
     dir_path.mkdir(exist_ok=True)
@@ -133,6 +138,7 @@ def run(
 
 
             ppl_count = 0   
+            queue_list = []
             for track in tracker.tracks:
                 if not track.is_confirmed() or track.time_since_update > 1:
                     continue
@@ -153,52 +159,20 @@ def run(
             if ppl_count > 0:
                 for i, box in enumerate(boxes):
                     if indexIDs[i] in previous:
+                        track_id = indexIDs[i]
                         center_x = int((box[0] + box[2]) / 2)
                         center_y = int((box[1] + box[3]) / 2)
                         p0 = (center_x, center_y)
-                        previous_box = previous[indexIDs[i]]
+                        previous_box = previous[track_id]
                         center_x2 = int((previous_box[0] + previous_box[2]) / 2)
                         center_y2 = int((previous_box[1] + previous_box[3]) / 2)
                         p1 = (center_x2, center_y2)
-
-                        # cv2.line(bgr_image, p0, p1, (0, 255, 0), 3)
-
-                        if utils.intersect(p0, p1, line[0], line[1]):
-                            if utils.below_line(line, p0): 
-                                out_counter += 1
-                            else: 
-                                in_counter += 1
-
-                f.write(str(frame_idx))
-                f.write(",")
-                f.write(str(datetime.timedelta(seconds=frame_idx//25)))
-                f.write(",")
-                f.write(str(ppl_count))
-                f.write(",")
-                f.write(str(in_counter + out_counter)) # accumulated flux
-                f.write(",")
-
-                for trackid in indexIDs:
-                    f.write(str(trackid))
-                    f.write(" ")
-                f.write("\n")
-                if save_img or save_video:
-                    cv2.line(bgr_image, line[0], line[1], (0, 255, 255), 2)  # 画出计数线
-                    cv2.putText(bgr_image, "In: {}".format(str(in_counter)), (100, 50),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 255), 2)
-                    cv2.putText(bgr_image, "Out: {}".format(str(out_counter)), (200, 50),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 255), 2)
-                    cv2.putText(bgr_image, "Flux: {}".format(str(in_counter + out_counter)), (100, 100),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 255), 2)
-
-                if save_img:
-                    image_path = dir_path / Path(str(frame_idx) + ".jpg")
-                    cv2.imwrite(str(image_path), bgr_image)
-                if save_video:
-                    video_writer.write(bgr_image)
-        if save_video:
-            video_writer.release()
-    return int(ppl_count)
+                        displacement = abs(p0[0] - p1[0]) + abs(p0[1] - p1[1])
+                        if displacement < displacement_thres and queue_polygon.intersects(Point(center_x, center_y)): 
+                            queue_list.append(track_id)
+                avg_queue_length = (avg_queue_length + len(queue_list)) / 2
+               
+    return round(avg_queue_length)
                 
 
 def parse_opt():
