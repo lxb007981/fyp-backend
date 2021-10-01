@@ -5,6 +5,8 @@ import datetime
 import urllib.request
 import shutil
 import logging
+import tempfile
+
 import torch
 
 from .deep_sort.tracker import Tracker
@@ -25,12 +27,13 @@ import cv2
 
 imgsz =640
 def runner(video_url):
-    file_name = "media/target_video.mp4"
+    tempFilePath = tempfile.gettempdir()
+    file_name = os.path.join(tempFilePath, "target_video.mp4")
     # Download the file from `url` and save it locally under `file_name`:
     with urllib.request.urlopen(video_url) as response, open(file_name, 'wb') as out_file:
         shutil.copyfileobj(response, out_file)
     logging.info(os.getcwd())
-    return run(weights='classify/yolov5s_custom.pt', source=file_name)
+    return run(weights='classify/yolov5s_custom.pt', source=file_name, output_dir=tempFilePath)
 def run(
     weights='yolov5s.pt',  # model.pt path(s)
     source='frames',  # file/dir/URL/glob, 0 for webcam
