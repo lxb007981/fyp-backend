@@ -57,7 +57,6 @@ def run(
     queue_polygon = Polygon(vertices)
     device = utils.select_device(device)
     use_gpu = device == torch.device('cuda:0')
-    print(device)
     half &= device.type != 'cpu'  # half precision only supported on CUDA
 
     model = attempt_load(weights, map_location=device)  # load FP32 model
@@ -95,7 +94,8 @@ def run(
             video_writer = cv2.VideoWriter(str(dir_path / Path("out.mp4")), fourcc, 60, size)
         logging.info("Frames = "+ str(dataset.frames))
         for _, img, im0s, _, frame_idx in dataset:
-            logging.info(frame_idx)
+            if (frame_idx % 15 == 0):
+                logging.info(frame_idx)
             if debug_frames > 0 and frame_idx > debug_frames:
                 break
             
@@ -172,7 +172,7 @@ def run(
                             queue_list.append(track_id)
                 avg_queue_length = (avg_queue_length + len(queue_list)) / 2
                
-    return round(avg_queue_length)
+    return {"avg_queue_len": round(avg_queue_length)}
                 
 
 def parse_opt():
